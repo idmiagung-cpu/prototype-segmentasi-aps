@@ -15,8 +15,6 @@ if "df" not in st.session_state:
     st.session_state.df = None
 if "labels" not in st.session_state:
     st.session_state.labels = None
-if "centroids" not in st.session_state:
-    st.session_state.centroids = None
 
 # =====================================================
 # KONFIGURASI HALAMAN
@@ -55,6 +53,7 @@ def init_centroids(data, k):
     return [data[i][:] for i in random.sample(range(len(data)), k)]
 
 def assign_clusters(data, centroids):
+    clusters = [[] for _ in centroids]
     labels = []
     for point in data:
         distances = [euclidean(point, c) for c in centroids]
@@ -96,7 +95,6 @@ if uploaded_file is not None:
 
             st.session_state.df = df
             st.session_state.labels = labels
-            st.session_state.centroids = centroids
             st.session_state.locked = True
 
 # =====================================================
@@ -105,62 +103,10 @@ if uploaded_file is not None:
 if st.session_state.locked:
     df = st.session_state.df
     labels = st.session_state.labels
-    centroids = st.session_state.centroids
 
     hasil = df.copy()
     hasil["Cluster"] = [l + 1 for l in labels]
 
-    # =================================================
-    # 📈 PCA SCATTER PLOT + LABEL CENTROID
-    # =================================================
-    st.subheader("📈 PCA Scatter Plot dengan Label Centroid")
-
-    pca = PCA(n_components=2)
-    data_pca = pca.fit_transform(df.values)
-    centroid_pca = pca.transform(centroids)
-
-    fig, ax = plt.subplots(figsize=(8, 6))
-
-    ax.scatter(
-        data_pca[:, 0],
-        data_pca[:, 1],
-        c=labels,
-        cmap="tab10",
-        alpha=0.7
-    )
-
-    ax.scatter(
-        centroid_pca[:, 0],
-        centroid_pca[:, 1],
-        c="red",
-        s=200,
-        marker="X",
-        label="Centroid"
-    )
-
-    # LABEL C1, C2, C3, C4 PADA CENTROID
-    for i, (x, y) in enumerate(centroid_pca):
-        ax.text(
-            x,
-            y,
-            f"C{i+1}",
-            fontsize=12,
-            fontweight="bold",
-            ha="center",
-            va="center",
-            bbox=dict(facecolor="white", edgecolor="black", boxstyle="round,pad=0.3")
-        )
-
-    ax.set_xlabel("PCA 1")
-    ax.set_ylabel("PCA 2")
-    ax.set_title("PCA Scatter Plot dengan Label Centroid")
-    ax.legend()
-
-    st.pyplot(fig)
-
-    # =================================================
-    # PILIH CLUSTER
-    # =================================================
     cluster_idx = st.selectbox(
         "Pilih Cluster:",
         options=list(range(1, K + 1))
@@ -172,23 +118,24 @@ if st.session_state.locked:
     st.write(f"Jumlah Data : **{len(df_cluster)}**")
 
     # =================================================
-    # 📋 ANGGOTA CLUSTER (LENGKAP)
+    # 📋 ANGGOTA CLUSTER (FULL, TANPA BATAS 20 BARIS)
     # =================================================
     st.subheader("📋 Anggota Cluster (Lengkap)")
 
+    # Tinggi tabel otomatis (maks 900px agar tetap nyaman)
     tinggi_tabel = min(900, 35 * (len(df_cluster) + 1))
 
     st.dataframe(
         df_cluster.reset_index(drop=True),
         use_container_width=True,
         height=tinggi_tabel,
-        page_size=len(df_cluster)
+        page_size=len(df_cluster)  # INI KUNCI UTAMA
     )
 
     st.caption(f"Total anggota Cluster {cluster_idx} : {len(df_cluster)} data")
 
     # =================================================
-    # ⬇️ DOWNLOAD CSV
+    # ⬇️ DOWNLOAD CSV PER CLUSTER
     # =================================================
     csv_cluster = df_cluster.reset_index(drop=True).to_csv(index=False)
 
@@ -200,7 +147,7 @@ if st.session_state.locked:
     )
 
     # =================================================
-    # ⬇️ DOWNLOAD EXCEL
+    # ⬇️ EXPORT EXCEL (.xlsx) PER CLUSTER
     # =================================================
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
