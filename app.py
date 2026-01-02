@@ -47,18 +47,18 @@ MAX_ITER = 100
 # FUNGSI K-MEANS
 # =====================================================
 def euclidean(a, b):
-    return math.sqrt(sum((a[i] - b[i]) ** 2 for i in range(len(a))))
+    return math.sqrt(
+        sum((float(a[i]) - float(b[i])) ** 2 for i in range(len(a)))
+    )
 
 def init_centroids(data, k):
     return [data[i][:] for i in random.sample(range(len(data)), k)]
 
 def assign_clusters(data, centroids):
-    clusters = [[] for _ in centroids]
     labels = []
     for point in data:
         distances = [euclidean(point, c) for c in centroids]
-        cidx = distances.index(min(distances))
-        labels.append(cidx)
+        labels.append(distances.index(min(distances)))
     return labels
 
 def compute_centroids(data, labels, k, dim):
@@ -77,25 +77,34 @@ def compute_centroids(data, labels, k, dim):
 # LOAD DATA & PROSES K-MEANS
 # =====================================================
 if uploaded_file is not None:
-    df_raw = pd.read_csv(uploaded_file, header=None)
-    dataset = df_raw.values.tolist()
-    df = pd.DataFrame(dataset)
+    df_raw = pd.read_csv(uploaded_file)
 
-    if not st.session_state.locked:
-        if st.button("🚀 Proses K-Means"):
-            random.seed(42)
-            centroids = init_centroids(dataset, K)
+    # 🔒 AMAN: hanya kolom numerik (inti perbaikan error)
+    df_numeric = df_raw.select_dtypes(include=["int64", "float64"])
 
-            for _ in range(MAX_ITER):
-                labels = assign_clusters(dataset, centroids)
-                new_centroids = compute_centroids(dataset, labels, K, len(dataset[0]))
-                if centroids == new_centroids:
-                    break
-                centroids = new_centroids
+    if df_numeric.empty:
+        st.error("❌ Dataset tidak memiliki kolom numerik.")
+    else:
+        dataset = df_numeric.values.tolist()
+        df = df_numeric.copy()
 
-            st.session_state.df = df
-            st.session_state.labels = labels
-            st.session_state.locked = True
+        if not st.session_state.locked:
+            if st.button("🚀 Proses K-Means"):
+                random.seed(42)
+                centroids = init_centroids(dataset, K)
+
+                for _ in range(MAX_ITER):
+                    labels = assign_clusters(dataset, centroids)
+                    new_centroids = compute_centroids(
+                        dataset, labels, K, len(dataset[0])
+                    )
+                    if centroids == new_centroids:
+                        break
+                    centroids = new_centroids
+
+                st.session_state.df = df
+                st.session_state.labels = labels
+                st.session_state.locked = True
 
 # =====================================================
 # TAMPILKAN HASIL
@@ -118,24 +127,23 @@ if st.session_state.locked:
     st.write(f"Jumlah Data : **{len(df_cluster)}**")
 
     # =================================================
-    # 📋 ANGGOTA CLUSTER (FULL, TANPA BATAS 20 BARIS)
+    # 📋 ANGGOTA CLUSTER (LENGKAP)
     # =================================================
     st.subheader("📋 Anggota Cluster (Lengkap)")
 
-    # Tinggi tabel otomatis (maks 900px agar tetap nyaman)
     tinggi_tabel = min(900, 35 * (len(df_cluster) + 1))
 
     st.dataframe(
         df_cluster.reset_index(drop=True),
         use_container_width=True,
         height=tinggi_tabel,
-        page_size=len(df_cluster)  # INI KUNCI UTAMA
+        page_size=len(df_cluster)
     )
 
     st.caption(f"Total anggota Cluster {cluster_idx} : {len(df_cluster)} data")
 
     # =================================================
-    # ⬇️ DOWNLOAD CSV PER CLUSTER
+    # ⬇️ DOWNLOAD CSV
     # =================================================
     csv_cluster = df_cluster.reset_index(drop=True).to_csv(index=False)
 
@@ -147,7 +155,7 @@ if st.session_state.locked:
     )
 
     # =================================================
-    # ⬇️ EXPORT EXCEL (.xlsx) PER CLUSTER
+    # ⬇️ DOWNLOAD EXCEL
     # =================================================
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
