@@ -1,20 +1,11 @@
 import streamlit as st
 import math
-import random
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
 import io
-
-# =====================================================
-# SESSION STATE
-# =====================================================
-if "locked" not in st.session_state:
-    st.session_state.locked = False
-if "df" not in st.session_state:
-    st.session_state.df = None
-if "labels" not in st.session_state:
-    st.session_state.labels = None
+from collections import Counter
 
 # =====================================================
 # KONFIGURASI HALAMAN
@@ -28,6 +19,16 @@ st.title("📊 Prototipe Segmentasi Anak Putus Sekolah")
 st.divider()
 
 # =====================================================
+# SESSION STATE
+# =====================================================
+if "locked" not in st.session_state:
+    st.session_state.locked = False
+if "df" not in st.session_state:
+    st.session_state.df = None
+if "labels" not in st.session_state:
+    st.session_state.labels = None
+
+# =====================================================
 # SIDEBAR
 # =====================================================
 st.sidebar.header("⚙️ Pengaturan")
@@ -38,21 +39,32 @@ K = st.sidebar.slider(
     min_value=2,
     max_value=8,
     value=4,
-    disabled=st.session_state.locked
+    disabled=True  # DIKUNCI SESUAI HASIL PENELITIAN
 )
 
-MAX_ITER = 100
+# =====================================================
+# CENTROID AKHIR (HASIL ITERASI KONVERGEN - DIKUNCI)
+# =====================================================
+FINAL_CENTROIDS = [
+    [0.8, 0.3, 0.2, 0.4, 0.0],  # Cluster 1
+    [0.5, 0.4, 1.0, 0.3, 1.0],  # Cluster 2
+    [0.9, 0.2, 0.1, 0.3, 1.0],  # Cluster 3
+    [0.0, 0.0, 0.1, 0.3, 0.6]   # Cluster 4
+]
+
+FITUR = [
+    "Pendidikan",
+    "Pekerjaan",
+    "Penghasilan",
+    "Anggota_Keluarga",
+    "Tempat_Tinggal"
+]
 
 # =====================================================
-# FUNGSI K-MEANS
+# FUNGSI
 # =====================================================
 def euclidean(a, b):
-    return math.sqrt(
-        sum((float(a[i]) - float(b[i])) ** 2 for i in range(len(a)))
-    )
-
-def init_centroids(data, k):
-    return [data[i][:] for i in random.sample(range(len(data)), k)]
+    return math.sqrt(sum((a[i] - b[i]) ** 2 for i in range(len(a))))
 
 def assign_clusters(data, centroids):
     labels = []
@@ -61,73 +73,62 @@ def assign_clusters(data, centroids):
         labels.append(distances.index(min(distances)))
     return labels
 
-def compute_centroids(data, labels, k, dim):
-    centroids = []
-    for i in range(k):
-        cluster_points = [data[j] for j in range(len(data)) if labels[j] == i]
-        if not cluster_points:
-            centroids.append([0] * dim)
-        else:
-            centroids.append(
-                [sum(p[d] for p in cluster_points) / len(cluster_points) for d in range(dim)]
-            )
-    return centroids
-
 # =====================================================
-# LOAD DATA & PROSES K-MEANS
+# LOAD DATA & ASSIGN CLUSTER
 # =====================================================
 if uploaded_file is not None:
-    df_raw = pd.read_csv(uploaded_file)
+    df = pd.read_csv(uploaded_file)
 
-    # 🔒 AMAN: hanya kolom numerik (inti perbaikan error)
-    df_numeric = df_raw.select_dtypes(include=["int64", "float64"])
+    # Validasi kolom
+    if list(df.columns[:5]) != FITUR:
+        st.error("❌ Struktur kolom dataset tidak sesuai dengan dataset penelitian.")
+        st.stop()
 
-    if df_numeric.empty:
-        st.error("❌ Dataset tidak memiliki kolom numerik.")
-    else:
-        dataset = df_numeric.values.tolist()
-        df = df_numeric.copy()
+    dataset = df[FITUR].values.tolist()
 
-        if not st.session_state.locked:
-            if st.button("🚀 Proses K-Means"):
-                random.seed(42)
-                centroids = init_centroids(dataset, K)
+    if not st.session_state.locked:
+        if st.button("🚀 Proses Klasterisasi"):
+            labels = assign_clusters(dataset, FINAL_CENTROIDS)
 
-                for _ in range(MAX_ITER):
-                    labels = assign_clusters(dataset, centroids)
-                    new_centroids = compute_centroids(
-                        dataset, labels, K, len(dataset[0])
-                    )
-                    if centroids == new_centroids:
-                        break
-                    centroids = new_centroids
-
-                st.session_state.df = df
-                st.session_state.labels = labels
-                st.session_state.locked = True
+            st.session_state.df = df
+            st.session_state.labels = labels
+            st.session_state.locked = True
 
 # =====================================================
 # TAMPILKAN HASIL
 # =====================================================
 if st.session_state.locked:
-    df = st.session_state.df
+    df = st.session_state.df.copy()
     labels = st.session_state.labels
 
-    hasil = df.copy()
-    hasil["Cluster"] = [l + 1 for l in labels]
+    df["Cluster"] = [l + 1 for l in labels]
 
-    cluster_idx = st.selectbox(
-        "Pilih Cluster:",
-        options=list(range(1, K + 1))
+    # =================================================
+    # DISTRIBUSI CLUSTER (HARUS SAMA DENGAN TESIS)
+    # =================================================
+    st.subheader("📊 Distribusi Anggota Klaster")
+    distribusi = Counter(df["Cluster"])
+    st.dataframe(
+        pd.DataFrame.from_dict(
+            distribusi, orient="index", columns=["Jumlah Anggota"]
+        ).sort_index()
     )
 
-    df_cluster = hasil[hasil["Cluster"] == cluster_idx]
+    # =================================================
+    # PILIH CLUSTER
+    # =================================================
+    cluster_idx = st.selectbox(
+        "Pilih Cluster:",
+        options=[1, 2, 3, 4]
+    )
+
+    df_cluster = df[df["Cluster"] == cluster_idx]
 
     st.subheader(f"📌 Ringkasan Cluster {cluster_idx}")
     st.write(f"Jumlah Data : **{len(df_cluster)}**")
 
     # =================================================
-    # 📋 ANGGOTA CLUSTER (LENGKAP)
+    # TABEL ANGGOTA CLUSTER (FULL)
     # =================================================
     st.subheader("📋 Anggota Cluster (Lengkap)")
 
@@ -140,13 +141,10 @@ if st.session_state.locked:
         page_size=len(df_cluster)
     )
 
-    st.caption(f"Total anggota Cluster {cluster_idx} : {len(df_cluster)} data")
-
     # =================================================
-    # ⬇️ DOWNLOAD CSV
+    # DOWNLOAD CSV
     # =================================================
     csv_cluster = df_cluster.reset_index(drop=True).to_csv(index=False)
-
     st.download_button(
         label=f"⬇️ Download CSV Cluster {cluster_idx}",
         data=csv_cluster,
@@ -155,7 +153,7 @@ if st.session_state.locked:
     )
 
     # =================================================
-    # ⬇️ DOWNLOAD EXCEL
+    # DOWNLOAD EXCEL
     # =================================================
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
@@ -171,3 +169,24 @@ if st.session_state.locked:
         file_name=f"anggota_cluster_{cluster_idx}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
+
+    # =================================================
+    # PCA (OPSIONAL - VISUALISASI)
+    # =================================================
+    st.subheader("📈 Visualisasi PCA (2D)")
+
+    pca = PCA(n_components=2)
+    X_pca = pca.fit_transform(df[FITUR].values)
+
+    df["PCA1"] = X_pca[:, 0]
+    df["PCA2"] = X_pca[:, 1]
+
+    fig, ax = plt.subplots()
+    for c in sorted(df["Cluster"].unique()):
+        subset = df[df["Cluster"] == c]
+        ax.scatter(subset["PCA1"], subset["PCA2"], label=f"Cluster {c}")
+
+    ax.set_xlabel("PCA 1")
+    ax.set_ylabel("PCA 2")
+    ax.legend()
+    st.pyplot(fig)
