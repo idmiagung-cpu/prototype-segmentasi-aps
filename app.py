@@ -1,7 +1,7 @@
 import streamlit as st
-import math
-import random
 import pandas as pd
+import random
+import math
 import io
 
 # =====================================================
@@ -13,154 +13,122 @@ st.set_page_config(
 )
 
 st.title("📊 Prototipe Segmentasi Anak Putus Sekolah")
+st.caption("Menampilkan hasil K-Means pada kondisi konvergen (iterasi akhir)")
 st.divider()
 
 # =====================================================
-# SESSION STATE
+# PARAMETER TETAP (SAMA DENGAN KODE ITERASI)
 # =====================================================
-if "locked" not in st.session_state:
-    st.session_state.locked = False
-if "df" not in st.session_state:
-    st.session_state.df = None
-if "labels" not in st.session_state:
-    st.session_state.labels = None
-
-# =====================================================
-# SIDEBAR
-# =====================================================
-st.sidebar.header("⚙️ Pengaturan")
-uploaded_file = st.sidebar.file_uploader(
-    "Upload Dataset CSV (sesuai dataset penelitian)",
-    type=["csv"]
-)
-
-K = st.sidebar.slider(
-    "Jumlah Cluster (K)",
-    min_value=2,
-    max_value=8,
-    value=4,
-    disabled=st.session_state.locked
-)
-
+K = 4
 MAX_ITER = 100
+SEED = 42
+random.seed(SEED)
 
 # =====================================================
-# FUNGSI K-MEANS (MANUAL, KONSISTEN DENGAN ITERASI)
+# FUNGSI K-MEANS (IDENTIK DENGAN KODE ANDA)
 # =====================================================
 def euclidean(a, b):
     return math.sqrt(sum((a[i] - b[i]) ** 2 for i in range(len(a))))
 
 def init_centroids(data, k):
-    return [data[i][:] for i in random.sample(range(len(data)), k)]
+    return random.sample(data, k)
 
 def assign_clusters(data, centroids):
+    clusters = [[] for _ in range(len(centroids))]
     labels = []
-    for point in data:
+
+    for idx, point in enumerate(data):
         distances = [euclidean(point, c) for c in centroids]
-        labels.append(distances.index(min(distances)))
-    return labels
+        cluster_idx = distances.index(min(distances))
+        clusters[cluster_idx].append((idx, point))
+        labels.append(cluster_idx)
 
-def compute_centroids(data, labels, k, dim):
-    centroids = []
-    for i in range(k):
-        cluster_points = [data[j] for j in range(len(data)) if labels[j] == i]
-        if not cluster_points:
-            centroids.append([0.0] * dim)
+    return clusters, labels
+
+def compute_centroids(clusters, dim):
+    new_centroids = []
+    for cluster in clusters:
+        if len(cluster) == 0:
+            new_centroids.append([0] * dim)
         else:
-            centroids.append(
-                [sum(p[d] for p in cluster_points) / len(cluster_points) for d in range(dim)]
-            )
-    return centroids
+            centroid = []
+            for i in range(dim):
+                centroid.append(
+                    sum(point[1][i] for point in cluster) / len(cluster)
+                )
+            new_centroids.append(centroid)
+    return new_centroids
+
+def converged(old, new):
+    return old == new
 
 # =====================================================
-# LOAD DATA & PROSES K-MEANS
+# UPLOAD DATASET
 # =====================================================
+uploaded_file = st.file_uploader(
+    "📂 Upload Dataset CSV (sesuai dataset penelitian)",
+    type=["csv"]
+)
+
 if uploaded_file is not None:
     df_raw = pd.read_csv(uploaded_file)
 
-    # ===== PASTIKAN STRUKTUR SESUAI DATASET PENELITIAN =====
-    fitur_cols = ["Feature1", "Feature2", "Feature3", "Feature4"]
-    df_fitur = df_raw[fitur_cols]
-
+    # 👉 Gunakan 4 kolom pertama sebagai fitur (SAMA DENGAN PENELITIAN)
+    df_fitur = df_raw.iloc[:, :4].astype(float)
     dataset = df_fitur.values.tolist()
 
-    if not st.session_state.locked:
-        if st.button("🚀 Proses K-Means"):
-            random.seed(42)  # 🔒 KUNCI HASIL AGAR SAMA DENGAN ITERASI
-            centroids = init_centroids(dataset, K)
+    # =================================================
+    # PROSES K-MEANS (SAMPAI ITERASI TERAKHIR)
+    # =================================================
+    centroids = init_centroids(dataset, K)
 
-            for _ in range(MAX_ITER):
-                labels = assign_clusters(dataset, centroids)
-                new_centroids = compute_centroids(
-                    dataset, labels, K, len(dataset[0])
-                )
-                if centroids == new_centroids:
-                    break
-                centroids = new_centroids
+    for _ in range(MAX_ITER):
+        clusters, labels = assign_clusters(dataset, centroids)
+        new_centroids = compute_centroids(clusters, len(dataset[0]))
+        if converged(centroids, new_centroids):
+            break
+        centroids = new_centroids
 
-            st.session_state.df = df_raw
-            st.session_state.labels = labels
-            st.session_state.locked = True
+    # =================================================
+    # HASIL AKHIR (KONVERGEN)
+    # =================================================
+    df_hasil = df_raw.copy()
+    df_hasil["Cluster"] = [l + 1 for l in labels]
 
-# =====================================================
-# TAMPILKAN HASIL
-# =====================================================
-if st.session_state.locked:
-    df = st.session_state.df.copy()
-    labels = st.session_state.labels
+    # =================================================
+    # RINGKASAN DISTRIBUSI CLUSTER
+    # =================================================
+    st.subheader("📌 Distribusi Anggota Cluster (Kondisi Konvergen)")
+    distribusi = df_hasil["Cluster"].value_counts().sort_index()
+    st.dataframe(distribusi.rename("Jumlah Anggota"))
 
-    df["Cluster"] = [l + 1 for l in labels]
+    st.divider()
 
-    cluster_idx = st.selectbox(
-        "Pilih Cluster:",
-        options=list(range(1, K + 1))
+    # =================================================
+    # PILIH CLUSTER
+    # =================================================
+    cluster_pilih = st.selectbox(
+        "Pilih Cluster untuk melihat anggotanya:",
+        options=sorted(df_hasil["Cluster"].unique())
     )
 
-    df_cluster = df[df["Cluster"] == cluster_idx]
+    df_cluster = df_hasil[df_hasil["Cluster"] == cluster_pilih]
 
-    st.subheader(f"📌 Ringkasan Cluster {cluster_idx}")
-    st.write(f"Jumlah Anggota: **{len(df_cluster)}**")
-
-    # =================================================
-    # 📋 TABEL ANGGOTA CLUSTER (FINAL – SESUAI ITERASI)
-    # =================================================
-    st.subheader("📋 Anggota Cluster (Lengkap)")
-
-    tinggi_tabel = min(900, 35 * (len(df_cluster) + 1))
+    st.subheader(f"📋 Anggota Cluster {cluster_pilih} (Iterasi Akhir)")
+    st.write(f"Jumlah anggota: **{len(df_cluster)}**")
 
     st.dataframe(
         df_cluster.reset_index(drop=True),
-        use_container_width=True,
-        height=tinggi_tabel
+        use_container_width=True
     )
 
-    st.caption(f"Total anggota Cluster {cluster_idx}: {len(df_cluster)} data")
-
     # =================================================
-    # ⬇️ DOWNLOAD CSV
+    # DOWNLOAD CSV
     # =================================================
-    csv_cluster = df_cluster.reset_index(drop=True).to_csv(index=False)
+    csv_data = df_cluster.to_csv(index=False)
     st.download_button(
-        label=f"⬇️ Download CSV Cluster {cluster_idx}",
-        data=csv_cluster,
-        file_name=f"anggota_cluster_{cluster_idx}.csv",
+        label="⬇️ Download CSV Cluster",
+        data=csv_data,
+        file_name=f"cluster_{cluster_pilih}_iterasi_akhir.csv",
         mime="text/csv"
-    )
-
-    # =================================================
-    # ⬇️ DOWNLOAD EXCEL
-    # =================================================
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-        df_cluster.reset_index(drop=True).to_excel(
-            writer,
-            index=False,
-            sheet_name=f"Cluster_{cluster_idx}"
-        )
-
-    st.download_button(
-        label=f"⬇️ Download Excel Cluster {cluster_idx}",
-        data=output.getvalue(),
-        file_name=f"anggota_cluster_{cluster_idx}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
